@@ -1,20 +1,6 @@
 import { StormGlass, ForecastPoint } from '@src/clients/stormGlass';
 import { InternalError } from '@src/util/errors/internal-error';
-
-export enum BeachPosition {
-  S = 'S',
-  E = 'E',
-  W = 'W',
-  N = 'N',
-}
-
-export interface Beach {
-  lat: Number;
-  lng: Number;
-  name: string;
-  position: BeachPosition;
-  user: string;
-}
+import { Beach } from '@src/models/beach';
 
 export interface BeachForecast extends Omit<Beach, 'user'>, ForecastPoint {}
 
@@ -28,6 +14,7 @@ export class ForecastProcessingInternalError extends InternalError {
     super(`Unexpected error during the forecast processing: ${message}`);
   }
 }
+
 export class Forecast {
   constructor(protected stormGlass = new StormGlass()) {}
 
@@ -38,22 +25,37 @@ export class Forecast {
     try {
       for (const beach of beaches) {
         const points = await this.stormGlass.fetchPoints(beach.lat, beach.lng);
-        const enrichedBeachData = this.enrichedBeachData(points, beach);
-
+        const enrichedBeachData = this.enrichBeachData(points, beach);
         pointsWithCorrectSources.push(...enrichedBeachData);
       }
-
       return this.mapForecastByTime(pointsWithCorrectSources);
-    } catch (err) {
-      throw new ForecastProcessingInternalError(err.message);
+    } catch (error) {
+      throw new ForecastProcessingInternalError(error.message);
     }
   }
 
-  private enrichedBeachData(
+  private mapForecastByTime(forecast: BeachForecast[]): TimeForecast[] {
+    const forecastByTime: TimeForecast[] = [];
+    for (const point of forecast) {
+      const timePoint = forecastByTime.find((f) => f.time === point.time);
+      if (timePoint) {
+        timePoint.forecast.push(point);
+      } else {
+        forecastByTime.push({
+          time: point.time,
+          forecast: [point],
+        });
+      }
+    }
+    return forecastByTime;
+  }
+
+  private enrichBeachData(
     points: ForecastPoint[],
     beach: Beach
   ): BeachForecast[] {
-    return points.map((point) => ({
+    return points.map((e) => ({
+      ...{},
       ...{
         lat: beach.lat,
         lng: beach.lng,
@@ -61,18 +63,7 @@ export class Forecast {
         position: beach.position,
         rating: 1,
       },
-      ...point,
+      ...e,
     }));
-  }
-
-  private mapForecastByTime(forecasts: BeachForecast[]): TimeForecast[] {
-    const forecastByTime: TimeForecast[] = [];
-    for (const point of forecasts) {
-      const timePoint = forecastByTime.find((f) => f.time === point.time);
-      timePoint
-        ? timePoint.forecast.push(point)
-        : forecastByTime.push({ time: point.time, forecast: [point] });
-    }
-    return forecastByTime;
   }
 }
